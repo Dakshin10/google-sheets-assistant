@@ -99,46 +99,65 @@ Google Sheet URL
 
 ## 🏗️ Architecture Overview
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                     BROWSER (React + Vite)                   │
-│  Dashboard │ Connections │ Query Console │ Explorer │ Logs   │
-│                         ↕ Fetch/WS                           │
-└──────────────────────────────────────────────────────────────┘
-                              │
-                    HTTP + WebSocket
-                              │
-┌──────────────────────────────────────────────────────────────┐
-│                    FASTAPI BACKEND (Python)                  │
-│                                                              │
-│  ┌─────────────────┐   ┌──────────────────────────────────┐  │
-│  │  REST Endpoints │   │        Background Scheduler      │  │
-│  │  /api/connections│  │  APScheduler → sync every N min  │  │
-│  │  /api/query      │  └──────────────────────────────────┘  │
-│  │  /api/explorer   │                  │                     │
-│  │  /api/logs       │   ┌──────────────▼──────────────────┐  │
-│  └──────┬──────────┘    │         Sync Engine             │  │
-│         │               │  parse → fetch → diff → write   │  │
-│  ┌──────▼───────────┐   └──────────────┬──────────────────┘  │
-│  │   AI Pipeline    │                  │                     │
-│  │  Schema Index    │                  │                     │
-│  │  RAG Context     │   ┌──────────────▼──────────────────┐  │
-│  │  LangChain/Groq  │   │      Schema Evolution Engine    │  │
-│  │  SQL Validator   │   │  ALTER TABLE / rebuild staging  │  │
-│  └──────────────────┘   └─────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────┘
-             │                           │
-    ┌────────▼──────┐          ┌────────▼──────────┐
-    │  Groq API     │          │  Cloudflare D1    │
-    │  LLaMA 3.3    │          │  (Remote SQLite)  │
-    │  70B Model    │          │  REST API path    │
-    └───────────────┘          └───────────────────┘
-             │
-    ┌────────▼──────┐
-    │ Google Sheets │
-    │  Spreadsheet  │
-    │  API (OAuth2) │
-    └───────────────┘
+```mermaid
+flowchart TD
+    subgraph BROWSER["🌐 Browser — React + Vite"]
+        UI_DASH["🏠 Dashboard"]
+        UI_CONN["🔗 Connections"]
+        UI_QUERY["🖥️ Query Console"]
+        UI_EXP["🗂️ Explorer"]
+        UI_LOGS["📋 Audit Logs"]
+    end
+
+    subgraph BACKEND["⚙️ FastAPI Backend — Python"]
+        direction TB
+        REST["REST Endpoints\n/api/connections\n/api/query\n/api/explorer\n/api/logs"]
+        WS["WebSocket Manager\n/api/ws"]
+        AI["🧠 AI Pipeline\nSchema Index · RAG Context\nLangChain · SQL Validator"]
+        SCHED["📅 APScheduler\nBackground Sync Jobs\nevery N minutes"]
+        SYNC["🔄 Sync Engine\nparse → fetch → diff → write\nRow-level hashing · Snapshots"]
+        SCHEMA_EV["🔧 Schema Evolution\nALTER TABLE · RENAME COLUMN\nStaging table rebuild"]
+        CACHE["⚡ Cache Layer\nSchema Cache · Query Cache\nLRU + Cache Manager"]
+    end
+
+    subgraph EXTERNAL["☁️ External Services"]
+        GROQ["🤖 Groq API\nLLaMA 3.3 70B\nSQL Generation"]
+        D1["🗄️ Cloudflare D1\nRemote SQLite\nREST API path"]
+        GSHEET["📊 Google Sheets\nSpreadsheets API v4\nOAuth 2.0"]
+    end
+
+    %% Browser ↔ Backend
+    BROWSER -- "HTTP REST + WebSocket" --> BACKEND
+
+    %% Internal Backend Flows
+    REST --> AI
+    REST --> SYNC
+    SCHED --> SYNC
+    SYNC --> SCHEMA_EV
+    SYNC --> CACHE
+    AI --> CACHE
+    WS -- "Broadcast Events" --> BROWSER
+
+    %% Backend ↔ External
+    AI -- "Prompt + Schema Context" --> GROQ
+    GROQ -- "Structured SQL Response" --> AI
+    SYNC -- "INSERT / UPDATE / DELETE" --> D1
+    SCHEMA_EV -- "ALTER TABLE DDL" --> D1
+    REST -- "SELECT Queries" --> D1
+    SYNC -- "Fetch Rows" --> GSHEET
+    GSHEET -- "Spreadsheet Data" --> SYNC
+
+    %% Styling
+    classDef browser fill:#1e1b4b,stroke:#6366f1,color:#c7d2fe
+    classDef backend fill:#0f172a,stroke:#334155,color:#cbd5e1
+    classDef external fill:#0c1a12,stroke:#16a34a,color:#86efac
+    classDef service fill:#1e293b,stroke:#475569,color:#94a3b8,rx:8
+
+    class BROWSER browser
+    class BACKEND backend
+    class EXTERNAL external
+    class UI_DASH,UI_CONN,UI_QUERY,UI_EXP,UI_LOGS,REST,WS,AI,SCHED,SYNC,SCHEMA_EV,CACHE service
+    class GROQ,D1,GSHEET service
 ```
 
 ---
@@ -861,6 +880,6 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 
 <div align="center">
 
-Built with ❤️ by [MinoriLabs](https://minorilabs.com) · Powered by [Groq](https://groq.com) · Deployed on [Cloudflare D1](https://developers.cloudflare.com/d1/)
+Built with ❤️ by Dakshin · Powered by [Groq](https://groq.com) · Deployed on [Cloudflare D1](https://developers.cloudflare.com/d1/)
 
 </div>
